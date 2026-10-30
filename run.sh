@@ -69,10 +69,17 @@ install() {
     progress "Creating directories"
     mkdir -p "$SCRIPT_DIR"
 
-    # Get command name
-    echo -e "${B}Command name [${DEFAULT_COMMAND}]:${NC} "
-    read -r COMMAND_NAME
+    # ⭐ Command name with 3s timeout (no Enter needed)
+    echo -ne "${B}Command name [${DEFAULT_COMMAND}] (3s): ${NC}"
+    COMMAND_NAME=""
+    for i in 3 2 1; do
+        read -t 1 -r COMMAND_NAME && break
+        echo -ne "\r${B}Command name [${DEFAULT_COMMAND}] (${i}s): ${NC}"
+    done
+    echo
     COMMAND_NAME=${COMMAND_NAME:-$DEFAULT_COMMAND}
+    echo -e "  ${G}✓${NC} Using command: ${Y}$COMMAND_NAME${NC}"
+    echo
 
     # Check if command exists
     if command -v "$COMMAND_NAME" &>/dev/null && [[ "$COMMAND_NAME" != "$DEFAULT_COMMAND" ]]; then
@@ -86,7 +93,7 @@ install() {
     fi
 
     progress "Creating welcome script"
-    
+
     # Create the main script
     cat > "$SCRIPT_PATH" << 'SCRIPT_EOF'
 #!/bin/bash
@@ -132,7 +139,7 @@ get_network() {
 clear
 
 echo -e "${G} Time:    ${NC}$(date '+%Y-%m-%d %H:%M:%S')"
-echo -e "${B} User:    ${NC}$(whoami)@$(hostname -s)"
+echo -e "${B} User:    ${NC}miraz@admin"
 echo -e "${P} Network: ${NC}$(get_network)"
 echo -e "${C} Storage: ${NC}$(get_storage)"
 echo -e "${G} Memory:  ${NC}$(get_memory)"
@@ -177,12 +184,33 @@ SCRIPT_EOF
         progress "Adding to shell startup"
     fi
 
+    # ⭐ Add prompt override (space + miraz@admin)
+    if ! grep -q "terminal-welcome prompt override" "$SHELL_CONFIG" 2>/dev/null; then
+        if [[ "$SHELL" == *"zsh"* ]] || [[ "$OSTYPE" == "darwin"* ]]; then
+            cat >> "$SHELL_CONFIG" << 'PROMPT_EOF'
+
+# >>> terminal-welcome prompt override >>>
+export PROMPT=' %F{green}%Bmiraz@admin%b%f:%F{blue}%~%f%# '
+# <<< terminal-welcome prompt override <<<
+PROMPT_EOF
+        else
+            cat >> "$SHELL_CONFIG" << 'PROMPT_EOF'
+
+# >>> terminal-welcome prompt override >>>
+export PS1=' \[\e[1;32m\]miraz@admin\[\e[0m\]:\[\e[1;34m\]\w\[\e[0m\]\$ '
+# <<< terminal-welcome prompt override <<<
+PROMPT_EOF
+        fi
+        progress "Overriding prompt → miraz@admin"
+    fi
+
     echo
     echo -e "${G}✓ Installation complete!${NC}"
     echo
     echo -e "${B}Usage:${NC}"
     echo -e "  • Automatic: Opens with every new terminal"
     echo -e "  • Manual: Run '${Y}$COMMAND_NAME${NC}' anytime"
+    echo -e "  • Prompt: ${Y}miraz@admin${NC} (root@localhost এর বদলে)"
     echo -e "  • Test now: ${Y}source $SHELL_CONFIG${NC}"
     echo
 }
@@ -215,29 +243,26 @@ uninstall() {
     
     # Remove all welcome script related lines more thoroughly
     if [[ "$OSTYPE" == "darwin"* ]]; then
-        # Remove PATH export line
         sed -i '' '/export PATH.*\.local\/bin/d' "$SHELL_CONFIG" 2>/dev/null || true
-        # Remove comment about PATH
         sed -i '' '/# Terminal welcome script PATH/d' "$SHELL_CONFIG" 2>/dev/null || true
-        # Remove comment about auto-run
         sed -i '' '/# Auto-run terminal welcome/d' "$SHELL_CONFIG" 2>/dev/null || true
-        # Remove the script execution line (exact path)
         sed -i '' "\\|$SCRIPT_PATH|d" "$SHELL_CONFIG" 2>/dev/null || true
-        # Remove any line containing welcome.sh
         sed -i '' '/welcome\.sh/d' "$SHELL_CONFIG" 2>/dev/null || true
-        # Remove old comment variations
         sed -i '' '/# Terminal welcome script$/d' "$SHELL_CONFIG" 2>/dev/null || true
+        # Remove prompt override block
+        sed -i '' '/>>> terminal-welcome prompt override >>>/,/<<< terminal-welcome prompt override <<</d' "$SHELL_CONFIG" 2>/dev/null || true
     else
-        # Linux version
         sed -i '/export PATH.*\.local\/bin/d' "$SHELL_CONFIG" 2>/dev/null || true
         sed -i '/# Terminal welcome script PATH/d' "$SHELL_CONFIG" 2>/dev/null || true
         sed -i '/# Auto-run terminal welcome/d' "$SHELL_CONFIG" 2>/dev/null || true
         sed -i "\\|$SCRIPT_PATH|d" "$SHELL_CONFIG" 2>/dev/null || true
         sed -i '/welcome\.sh/d' "$SHELL_CONFIG" 2>/dev/null || true
         sed -i '/# Terminal welcome script$/d' "$SHELL_CONFIG" 2>/dev/null || true
+        # Remove prompt override block
+        sed -i '/>>> terminal-welcome prompt override >>>/,/<<< terminal-welcome prompt override <<</d' "$SHELL_CONFIG" 2>/dev/null || true
     fi
     
-    # Clean up empty lines (remove multiple consecutive empty lines)
+    # Clean up empty lines
     if [[ "$OSTYPE" == "darwin"* ]]; then
         sed -i '' '/^$/N;/^\n$/d' "$SHELL_CONFIG" 2>/dev/null || true
     else
@@ -253,6 +278,7 @@ uninstall() {
     echo -e "  • Script files and commands"
     echo -e "  • Shell configuration entries"
     echo -e "  • PATH modifications"
+    echo -e "  • Prompt override"
     echo -e "${Y}⚠ Restart your terminal or run 'source $SHELL_CONFIG' to apply changes${NC}"
     echo -e "${B}Backup created: ${SHELL_CONFIG}.backup.*${NC}"
     echo
@@ -269,7 +295,6 @@ status() {
         echo -e "${B}  Script: ${NC}$SCRIPT_PATH"
         echo -e "${B}  Config: ${NC}$SHELL_CONFIG"
         
-        # Find command names
         local commands=()
         for cmd in "$SCRIPT_DIR"/*; do
             if [[ -L "$cmd" ]] && [[ "$(readlink "$cmd")" == "$SCRIPT_PATH" ]]; then
@@ -279,6 +304,12 @@ status() {
         
         if [[ ${#commands[@]} -gt 0 ]]; then
             echo -e "${B}  Commands: ${NC}${commands[*]}"
+        fi
+
+        if grep -q "terminal-welcome prompt override" "$SHELL_CONFIG" 2>/dev/null; then
+            echo -e "${B}  Prompt:   ${NC}miraz@admin ${G}(active)${NC}"
+        else
+            echo -e "${B}  Prompt:   ${NC}${R}not overridden${NC}"
         fi
     else
         echo -e "${R}✗ Not installed${NC}"
